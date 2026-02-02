@@ -2,6 +2,8 @@
 
 A comprehensive data storytelling project analyzing long-term housing price developments across German cities, examining regional disparities, temporal trends, and macroeconomic relationships.
 
+The HTML file can be found in the `docs` folder under file name `dsv.html` and can also be viewed online [here](https://mansari40.github.io/DataStorytelling-German-Housing-Prices/dsv.html).
+
 ## Project Overview
 
 This research project investigates how housing prices have evolved across approximately 21 German cities over a 61-year period (1964-2025). The analysis reveals significant regional divergence, particularly after 2010, and examines the relationship between housing price dynamics and key macroeconomic indicators including gross domestic product, long-term interest rates, and unemployment rates.
