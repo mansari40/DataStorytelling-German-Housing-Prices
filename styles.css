@@ -1,0 +1,66 @@
+/* Typography and layout */
+body {
+  line-height: 1.55;
+  font-size: 17px;
+}
+
+h1, h2, h3 {
+  letter-spacing: 0.2px;
+}
+
+.quarto-title-block .title {
+  font-weight: 700;
+}
+
+.quarto-title-block .subtitle {
+  margin-top: 0.3rem;
+  opacity: 0.95;
+}
+
+/* Use more page width (fix excessive side whitespace) */
+main.content {
+  max-width: 980px;   /* was 980px */
+  margin: 0 auto;
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
+}
+
+/* Reduce default Quarto/Bootstrap column padding */
+.page-columns {
+  padding-left: 0.7rem;
+  padding-right: 0.7rem;
+}
+
+/* Captions */
+.figure-caption,
+.table-caption {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+/* Better spacing around figures */
+.quarto-figure {
+  margin-top: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+
+
+/* Tables */
+table {
+  font-size: 0.98rem;
+}
+
+/* Ensure plots/images don't exceed container and stay centered */
+img, svg, canvas {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* If you see horizontal scrollbars from code/figures */
+pre, code {
+  overflow-x: auto;
+}
