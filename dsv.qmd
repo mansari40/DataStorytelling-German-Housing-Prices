@@ -1,0 +1,1457 @@
+---
+title: "Understanding German Housing Market, 1964–2025"
+subtitle: "The story behind rising housing prices"
+author: "Mitali Acharya, Mustafa Ansari, Sai Arun"
+affiliation: "Constructor University"
+date: "December 31, 2025"
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    page-layout: full
+
+execute:
+  echo: true
+  warning: false
+  message: false
+  freeze: auto
+
+  fig-width: 10
+  fig-height: 6
+  dpi: 160
+---
+
+```{python}
+#| label: setup
+#| include: false
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.ticker import FuncFormatter, MultipleLocator, MaxNLocator
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
+
+sns.set_theme(style="whitegrid")
+df = pd.read_excel("data/GREIX_all_cities_data.xlsx")
+df_clean = df[df["City"] != "Berlin"].copy()
+
+df_clean["Price"] = (
+    df_clean.groupby("City")["Price"]
+    .transform(lambda x: x.interpolate(method="linear"))
+)
+
+df_clean["Price"] = (
+    df_clean.groupby(["City", "Property_Type"])["Price"]
+    .transform(lambda x: x.fillna(x.median()))
+)
+
+yearly_prices = (
+    df_clean.groupby(["Year", "City", "Property_Type"], as_index=False)
+    .agg({"Price": "mean", "Inflation": "mean"})
+)
+df_greix = yearly_prices[yearly_prices["City"] == "GREIX"]
+segment_avg = (
+    df_greix
+    .groupby(["Year", "Property_Type"], as_index=False)["Price"]
+    .mean()
+)
+```
+## Abstract
+
+Using housing price data from 1964 to 2025 for around 21 German cities, we analyze long-term developments in the German housing market. The data include different property types, namely apartments, single-family houses, and multi-family houses, and show varying time coverage across cities. This allows us to compare long-term trends across regions as well as more recent price developments.
+
+The analysis compares housing price trends at the city level with the national housing price index (GREIX). In addition, housing price movements are related to selected macroeconomic indicators, including GDP growth, long-term interest rates, and unemployment changes. This approach helps to examine whether housing prices mainly follow general economic conditions or whether regional differences have increased over time.
+
+The results show that housing prices across German cities followed a broadly similar trend until the early 2000s. From around 2010 onwards, price developments begin to differ strongly across cities. Several cities show much stronger price growth than the national average, while others experience weaker growth or stagnation. Differences across property types are also visible, with apartments and single-family houses generally showing stronger growth than multi-family houses.
+
+The comparison with macroeconomic indicators suggests that housing price growth cannot be explained by economic growth alone. Strong price increases are observed during periods of low interest rates and declining unemployment, while recent price corrections indicate a higher sensitivity of housing prices to changing financial conditions. Overall, the analysis points to increasing regional and structural differences in the German housing market over time.
+
+The slides can be found <a href="https://www.canva.com/design/DAG8ogHZKSo/nK6EFs-p901AJ74QD0Qg2A/edit" target="_blank">here</a>
+
+## Introduction
+
+Housing prices change over time and are influenced by economic conditions such as income, interest rates, and employment. Over long periods, even small differences in regional conditions can lead to large differences in housing prices across cities. Changes in financial conditions and household behavior can therefore have an important impact on housing markets.
+
+- An interesting question is, **how the German housing market has changed over time? Have housing prices developed similarly across cities, or have differences increased?** One may think of effects in both directions: National trends such as economic growth and monetary policy affect all regions and may lead to similar housing price developments across cities. On the other hand, local factors such as population growth, housing supply, and urban demand may cause some cities to become much less affordable than others.
+
+- A second question concerns the role of economic conditions. **Do macroeconomic factors help explain housing price changes?** Again, effects in both directions are possible: Low interest rates, rising GDP, and declining unemployment can increase housing demand and push prices upward.
+
+At the same time, housing prices may rise even when economic growth is weak, suggesting that prices are not driven by economic factors alone.
+
+This data analysis uses <a href="https://greix.de/download?inf=false&tab=cities" target="_blank">housing price data</a> from 1964 to 2025 for around 21 German cities and compares city-level price trends with the national housing price index (GREIX). In addition, <a href="https://data.worldbank.org/indicator/NY.GDP.MKTP.CD?locations=DE" target="_blank">data on GDP</a>, <a href="https://data.ecb.europa.eu/data/datasets/IRS/IRS.M.DE.L.L40.CI.0000.EUR.N.Z" target="_blank">long-term interest rates</a>, and <a href="https://www.statista.com/statistics/227005/unemployment-rate-in-germany/" target="_blank">unemployment</a> are used to study the relationship between housing prices and economic conditions.
+
+## Data
+
+The main data source is the German Real Estate Index (GREIX), which provides historical housing price information for different cities and property types in Germany.
+
+The dataset covers the period from 1964 to 2025, depending on the city and property type. Prices are available for three types of properties: apartments, single-family houses, and multi-family houses. Not all cities have data for all property types or for the full time period. Table 1 shows the cities included in the analysis and the corresponding time coverage for each property type.
+
+In addition to city-level data, the national housing price index (GREIX) is used as a benchmark to compare local housing price developments with the overall German housing market.
+
+Macroeconomic data are taken from the World Bank. These include GDP, long-term interest rates, and unemployment. The macroeconomic variables are used to examine how housing price developments relate to broader economic conditions over time.
+
+
+```{python}
+#| label: tbl-coverage
+#| tbl-cap: "City and data coverage for each property type and time range. This shows which years and property segments are available for each city in the GREIX dataset (apartments, single-family and multi-family houses)"
+#| fig-align: center
+
+
+SEGMENTS = {
+    "Apartments": "Apartment",
+    "Single-Family": "Single-family house",
+    "Multi-Family": "Multi-family house",
+}
+
+d = yearly_prices.copy()
+d["Year"] = pd.to_numeric(d["Year"], errors="coerce").astype("Int64")
+d = d.dropna(subset=["City", "Property_Type", "Year"])
+
+cov = (
+    d[d["Property_Type"].isin(SEGMENTS.values())]
+    .groupby(["City", "Property_Type"], as_index=False)
+    .agg(start=("Year", "min"), end=("Year", "max"))
+)
+cov["range"] = cov["start"].astype(int).astype(str) + " - " + cov["end"].astype(int).astype(str)
+wide = (
+    cov.pivot(index="City", columns="Property_Type", values="range")
+    .rename(columns={v: k for k, v in SEGMENTS.items()})
+    .reindex(columns=list(SEGMENTS.keys()))
+    .reset_index()
+    .fillna("-")
+)
+wide = wide.sort_values("City").reset_index(drop=True)
+
+plt.rcParams["font.family"] = "serif"
+rows = []
+rows.append(["", "", "Time coverage", ""])
+rows.append(["City", "Apartments", "Single-Family", "Multi-Family"])
+rows += wide[["City", "Apartments", "Single-Family", "Multi-Family"]].values.tolist()
+
+fig, ax = plt.subplots(figsize=(7.6, 5.1), dpi=240)
+ax.axis("off")
+col_widths = [0.30, 0.233, 0.233, 0.233]
+tbl = ax.table(
+    cellText=rows,
+    cellLoc="center",
+    colLoc="center",
+    colWidths=col_widths,
+    bbox=[0.02, 0.03, 0.96, 0.92],
+)
+tbl.auto_set_font_size(False)
+tbl.set_fontsize(11)
+n_rows = len(rows)
+n_cols = 4
+for (r, c), cell in tbl.get_celld().items():
+    cell.set_linewidth(0.0)
+    cell.set_edgecolor("white")
+    if r in (0, 1): cell.get_text().set_fontweight("bold")
+    if r == 0 and c in (0, 1, 3): cell.get_text().set_text("")
+    if c == 0:
+        if r == 0: cell.get_text().set_ha("center")
+        else: cell.get_text().set_ha("left")
+    else:
+        cell.get_text().set_ha("center")
+for c in range(n_cols):
+    tbl[(0, c)].set_height(tbl[(0, c)].get_height() * 0.92)
+    tbl[(1, c)].set_height(tbl[(1, c)].get_height() * 0.97)
+fig.canvas.draw()
+cell00 = tbl[(0, 0)]
+cell01 = tbl[(0, 1)]
+cell03 = tbl[(0, 3)]
+cell10 = tbl[(1, 0)]
+cell_last0 = tbl[(n_rows - 1, 0)]
+x_left = cell00.get_x()
+x_right = cell03.get_x() + cell03.get_width()
+y_top = cell00.get_y() + cell00.get_height()
+y_after_row0 = cell00.get_y()
+y_after_row1 = cell10.get_y()
+y_bottom = cell_last0.get_y()
+x_tc_left = cell01.get_x()
+x_tc_right = x_right
+ax.hlines(y_after_row0, x_tc_left, x_tc_right, transform=ax.transAxes, color="black", lw=0.9)
+ax.hlines(y_after_row1, x_left, x_right, transform=ax.transAxes, color="black", lw=1.0)
+ax.hlines(y_top + 0.008, x_left, x_right, transform=ax.transAxes, color="black", lw=1.1)
+ax.hlines(y_top + 0.003, x_left, x_right, transform=ax.transAxes, color="black", lw=0.7)
+ax.hlines(y_bottom - 0.003, x_left, x_right, transform=ax.transAxes, color="black", lw=0.7)
+ax.hlines(y_bottom - 0.008, x_left, x_right, transform=ax.transAxes, color="black", lw=1.1)
+ax.text(
+    0.5, y_top + 0.025, "City and data coverage",
+    transform=ax.transAxes, ha="center", va="bottom",
+    fontsize=14, fontweight="bold"
+)
+plt.tight_layout()
+plt.show()
+```
+
+## Analysis
+
+The basic idea of the analysis is to compare housing price developments in individual German cities with the national housing price trend. @fig-1-city-vs-national shows housing price trends for selected German cities together with the national average (GREIX) over the period from 1965 to 2025.
+
+By plotting city-level prices alongside the national average, it becomes possible to assess which cities follow the German-wide trend closely and which deviate from it. This comparison helps to identify cities with particularly strong or weak housing price growth over time.
+
+The figure shows that housing prices across most cities broadly follow the national trend over long periods. However, clear differences across cities are visible. Munich stands out strongly, with housing prices rising far above the national average, especially after 2010. Cities such as Frankfurt, Hamburg, and Stuttgart also show price levels that are consistently above the German-wide average in recent years.
+
+In contrast, cities such as Chemnitz, Dortmund, and Duisburg remain below the national average for most of the observed period. Other cities, including Cologne and Dresden, follow the national trend more closely, with periods slightly above or below the German-wide average.
+
+```{python}
+
+#| label: fig-1-city-vs-national 
+#| fig-cap: "Average housing price trends for each German city compared to the GREIX national average (1965–2025). Cities diverge most strongly after 2010, with Munich and several other large cities rising far above the national trend, while others remain below."
+#| fig-width: 14
+#| fig-height: 10
+
+sns.set_theme(style="whitegrid")
+
+plt.figure(figsize=(16, 8))
+
+for city in sorted(yearly_prices["City"].unique()):
+    if city == "GREIX":
+        continue
+
+    df_city = yearly_prices[yearly_prices["City"] == city]
+    sns.lineplot(
+        data=df_city,
+        x="Year",
+        y="Price",
+        marker="o",
+        markersize=3.5,
+        linewidth=1.4,
+        alpha=0.9,
+        errorbar=None,
+        label=city,
+    )
+
+
+if not df_greix.empty:
+    sns.lineplot(
+        data=df_greix,
+        x="Year",
+        y="Price",
+        marker="o",
+        color="black",
+        linestyle="--",
+        linewidth=2,
+        markersize=5,
+        label="Germany (National Average)",
+    )
+
+plt.title(
+    "Average Housing Price Trends Across German Cities (vs National Average)\n1965–2025",
+    fontsize=25,
+    fontweight="bold",
+)
+plt.xlabel("Year")
+plt.ylabel("Average Price (€) per m²")
+plt.legend(title="City", bbox_to_anchor=(1.05, 1),fontsize=14, loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
+
+To allow a closer inspection of individual city developments, housing price trends are shown separately for each city in @fig-2-city-trends-grid. While the previous @fig-1-city-vs-national provides an overall comparison across cities, this representation makes it easier to focus on specific cities and to examine how local price developments evolve relative to the national trend.
+
+For each city, the local housing price trend is plotted together with the national housing price index. This helps to identify periods in which city-level prices closely follow the German-wide average and periods in which they diverge. The city-specific plots confirm the general pattern observed in the previous @fig-1-city-vs-national. Long-term housing price movements are similar across cities, but the strength of price growth differs substantially, especially in the more recent period.
+
+Overall, the city-level plots are consistent with the results from the aggregated comparison. They confirm that Munich and several other large cities experienced particularly strong housing price growth, while other cities remained closer to or below the national trend. The main contribution of this representation is that it allows a detailed inspection of individual city trajectories without changing the overall conclusions.
+
+```{python}
+#| label: fig-2-city-trends-grid
+#| fig-cap: "Average housing price trends for each German city, 1965–2025. Each panel highlights one city’s trajectory, showing how some cities track the national trend closely while others diverge substantially in recent years."
+sns.set_theme(style="white", context="talk")
+
+yearly_city = (
+    yearly_prices
+    .groupby(["City", "Year"], as_index=False)["Price"]
+    .mean()
+    .sort_values(["City", "Year"])
+    .reset_index(drop=True)
+)
+
+cities = sorted(yearly_city["City"].unique())
+x_major = [1960, 1980, 2000, 2020]
+x_min, x_max = 1960, 2025
+
+context_color = "#5b8cc0"
+focus_color = "#163a5f"
+
+ncols = 4
+nrows = int(np.ceil(len(cities) / ncols))
+
+fig, axes = plt.subplots(
+    nrows, ncols,
+    figsize=(22, max(7, nrows * 3.0)),
+    sharex=False,
+    sharey=False
+)
+axes = np.array(axes).reshape(-1)
+
+context_lw = 1.25
+context_alpha = 0.40
+
+title_fs = 18
+title_fw = "bold"
+tick_fs = 13
+tick_fw = "bold"
+axis_label_fs = 19
+axis_label_fw = "bold"
+
+groups = list(yearly_city.groupby("City"))
+
+for i, city in enumerate(cities):
+    ax = axes[i]
+    for _, grp in groups:
+        ax.plot(grp["Year"], grp["Price"], color=context_color, lw=context_lw, alpha=context_alpha, zorder=1)
+    sub = yearly_city[yearly_city["City"] == city]
+    ax.plot(sub["Year"], sub["Price"], color=focus_color, lw=3.0, alpha=1.0, zorder=3)
+    ax.set_title(city, fontsize=title_fs, fontweight=title_fw, pad=8)
+    ax.set_xlim(x_min, x_max)
+    ax.set_xticks(x_major)
+    ax.xaxis.set_minor_locator(MultipleLocator(1))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
+    ax.tick_params(axis="x", which="major", labelsize=tick_fs, length=8, width=1.2, pad=6)
+    ax.tick_params(axis="x", which="minor", length=4, width=1.0)
+    ax.tick_params(axis="y", which="major", labelsize=tick_fs, length=7, width=1.1)
+    for lab in ax.get_xticklabels() + ax.get_yticklabels():
+        lab.set_fontweight(tick_fw)
+    for side in ["top", "right", "bottom", "left"]:
+        ax.spines[side].set_visible(True)
+        ax.spines[side].set_linewidth(1.2)
+        ax.spines[side].set_color("black")
+    ax.grid(False)
+
+for j in range(i + 1, len(axes)):
+    axes[j].axis("off")
+
+fig.suptitle("Average Housing Price Trends by City (1965–2025)", fontsize=30, fontweight="bold", y=1.02)
+fig.supxlabel("Year", fontsize=axis_label_fs, fontweight=axis_label_fw, y=0.02)
+fig.supylabel("Average Price (€)/m²", fontsize=axis_label_fs, fontweight=axis_label_fw, x=0.01)
+plt.tight_layout()
+plt.show()
+```
+
+After examining housing price levels and long term trends across cities, the next step is to look more closely at how fast housing prices have grown in different periods. While the previous figures show that some cities have higher price levels than others, they do not directly show whether these differences developed gradually or emerged more strongly in specific time periods.
+ 
+To address this, @fig-3-top-bottom compares housing price growth across cities relative to the national housing price index (GREIX). The figure focuses on two separate periods, 2004–2014 and 2014–2024, and shows the top three and bottom three cities in terms of price growth in each period. This allows for a clearer comparison of relative growth dynamics over time.
+ 
+For the period from 2004 to 2014, Munich shows by far the strongest housing price growth, clearly exceeding the national average. Frankfurt and Hamburg also grow faster than the German wide trend during this period. In contrast, Kreis Mettmann shows only weak growth, and Duisburg and Chemnitz move in the opposite direction, with prices declining over the decade. These results are consistent with the earlier city-level plots, where Munich and other large cities already appeared to diverge upward from the national trend.
+ 
+In the later period from 2014 to 2024, housing price growth increases substantially across most cities. However, the set of cities with the strongest growth changes. Potsdam shows the highest increase in this period, followed by Luebeck and Erfurt, all of which grow more strongly than the national average. At the same time, cities such as Bonn, Wiesbaden, and Karlsruhe exhibit weaker growth relative to GREIX. This indicates that strong housing price growth is not limited to the same cities across time and that regional dynamics can shift.
+ 
+Overall, the growth comparison reinforces the earlier observation that housing price developments differ substantially across cities, especially in the more recent period. It also shows that these differences are not only visible in price levels but also in growth rates, and that the cities with the strongest growth change over time. While Munich dominates in the earlier period, other cities show stronger relative growth after 2014. This indicates that regional housing market dynamics evolve over time and are not driven by a single group of cities.
+
+The in detail segement based analysis can be found in Appendix @fig-facets
+
+```{python}
+#| label: fig-3-top-bottom
+#| fig-cap: "Housing price growth by city: top and bottom three cities in each period (2004–2014 and 2014–2024). Growth rates are calculated as total percentage change over each decade."
+#| fig-width: 10
+#| fig-height: 6
+
+
+city_year = (
+    yearly_prices
+    .groupby(["City", "Year"], as_index=False)["Price"]
+    .mean()
+    .dropna(subset=["City", "Year", "Price"])
+)
+
+city_year["Year"] = pd.to_numeric(city_year["Year"], errors="coerce").astype(int)
+
+wide = (
+    city_year[city_year["Year"].isin([2004, 2014, 2024])]
+    .pivot(index="City", columns="Year", values="Price")
+)
+
+pct_table = pd.DataFrame(index=wide.index)
+pct_table["Pct_2004_2014"] = (wide[2014] / wide[2004] - 1) * 100
+pct_table["Pct_2014_2024"] = (wide[2024] / wide[2014] - 1) * 100
+pct_table = pct_table.dropna()
+
+def get_top_bottom(df, col):
+    g = df.loc["GREIX", col]
+    d = df.drop("GREIX")
+
+    top3 = d[d[col] > g].sort_values(col, ascending=False).head(3)
+    bottom3 = d[d[col] < g].sort_values(col, ascending=False).tail(3)
+
+    out = pd.concat([top3, df.loc[["GREIX"]], bottom3])
+    return out.index.tolist(), out[col].tolist()
+
+cities_0414, values_0414 = get_top_bottom(pct_table, "Pct_2004_2014")
+cities_1424, values_1424 = get_top_bottom(pct_table, "Pct_2014_2024")
+
+red = "#d62728"
+grey = "#4b4b4b"
+
+def plot_panel(ax, cities, values, title):
+    y = np.arange(len(cities))
+    colors = [red if c == "GREIX" else "#9e9e9e" for c in cities]
+
+    ax.barh(y, values, color=colors, height=0.45)
+
+    for i, v in enumerate(values):
+        ax.text(v + 1, i, f"{v:.0f}%", va="center", fontsize=8, color=grey)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(cities, fontsize=9)
+    ax.invert_yaxis()
+
+    ax.set_title(title, fontsize=11, fontweight="bold")
+    ax.set_xlabel("Change (%)", fontsize=9)
+    ax.tick_params(axis="x", labelsize=8)
+
+    ax.grid(axis="x", linestyle="--", alpha=0.3)
+    for s in ax.spines.values():
+        s.set_visible(False)
+
+fig, axes = plt.subplots(1, 2, figsize=(8, 3.6), dpi=180)
+
+plot_panel(axes[0], cities_0414, values_0414, "2004–2014")
+plot_panel(axes[1], cities_1424, values_1424, "2014–2024")
+
+fig.suptitle(
+    "Housing Price Growth by City: Top and Bottom Performers Relative to GREIX",
+    fontsize=12,
+    fontweight="bold",
+    y=0.98
+)
+
+plt.tight_layout(rect=[0, 0, 1, 0.92])
+plt.show()
+
+```
+
+```{python}
+#| label: fig-greix-by-segment
+#| fig-cap: "Average housing price per m² by property type in Germany (1965–2025, GREIX composite). Apartments, single-family, and multi-family houses have diverged especially after 2010. Key periods such as the financial crisis and COVID-19 are shaded."
+
+
+
+type_colors = {
+    "Apartment": "#0072B2",
+    "Single-family house": "#009E73",
+    "Multi-family house": "#D55E00"
+}
+outline_color = "white"
+df_greix = yearly_prices[yearly_prices["City"] == "GREIX"].copy()
+
+plt.figure(figsize=(14, 7.5))
+plt.axvspan(2008, 2010, color="#bbbbbb", alpha=0.25, lw=0, zorder=0)
+plt.axvspan(2020, 2022.5, color="#b0e0e6", alpha=0.20, lw=0, zorder=0)
+plt.text(2008.7, 500, "Financial Crisis", rotation=90, va="bottom", fontsize=14, alpha=0.7)
+plt.text(2020.5, 500, "COVID-19", rotation=90, va="bottom", fontsize=14, alpha=0.7)
+
+for ptype, color in type_colors.items():
+    d = segment_avg[segment_avg["Property_Type"] == ptype]
+    plt.plot(d["Year"], d["Price"], color=outline_color, linewidth=7.2, alpha=0.35, zorder=2)
+    plt.plot(d["Year"], d["Price"], color=color, linewidth=3.2, marker='o', markersize=8, zorder=3, label=ptype)
+    plt.fill_between(d["Year"], d["Price"], color=color, alpha=0.12, zorder=1)
+    right_year = d["Year"].max()
+    right_val = d[d["Year"] == right_year]["Price"].values[0]
+    plt.annotate(
+        f"{int(right_val):,} EUR",
+        xy=(right_year, right_val),
+        xytext=(14, 0),
+        textcoords="offset points",
+        va="center", ha="left",
+        fontsize=15, fontweight="bold", color=color,
+        bbox=dict(facecolor="white", edgecolor=color, boxstyle="round,pad=0.23", lw=1, alpha=0.92)
+    )
+
+plt.title("Average Housing Price per m² by Property Type in Germany (1965–2025)", fontsize=21, fontweight="bold", pad=16)
+plt.xlabel("Year", fontsize=14, fontweight="bold")
+plt.ylabel("Average Price (EUR) per m²", fontsize=14, fontweight="bold")
+plt.xticks(np.arange(1965, 2026, 5), rotation=30)
+plt.yticks(fontsize=13)
+plt.grid(axis="y", linestyle="--", alpha=0.33)
+plt.legend(title="Property Type", fontsize=13, title_fontsize=15, loc="upper left")
+plt.tight_layout()
+plt.show()
+```
+
+To assess whether the national benchmark behaves differently across segments, the GREIX series is examined by property type. When the national trend is split into apartments, single-family houses, and multi-family houses (with apartments defined as all residential properties that are neither single-family nor multi-family houses), a largely shared cycle becomes visible in @fig-greix-by-segment.
+
+Across all three segments, price movements remain relatively moderate until the early 2000s. A clear acceleration then emerges after around 2010, followed by a cooling in the most recent years. The main turning points are therefore not confined to one segment, but appear to reflect broader market forces that affect housing demand and financing across the entire market.
+
+The differences across segments are seen primarily in levels rather than timing. Apartments and single-family houses tend to reach higher price levels, especially in the later period, while multi-family house prices remain lower throughout, even though strong growth is also recorded after 2010. Overall, the national benchmark is found to move in parallel across property types, with segment-specific variation showing up more in how high prices rise than in when the cycle shifts.
+ 
+
+```{python}
+#| label: fig-growth-by-segment
+#| fig-cap: Average yearly price growth from 2010–2024 by city and segment. Each panel shows a different property type. GREIX represents the national benchmark. Growth rates are expressed as annualized log-point changes, making city and segment differences directly comparable.
+#| fig-width: 16
+#| fig-height: 10
+
+segments = ["Apartment", "Single-family house", "Multi-family house"]
+start, end = 2010, 2024
+
+growth_stats = []
+
+for segment in segments:
+    d = yearly_prices.copy()
+    d = d[d["Property_Type"].str.strip() == segment]
+    d = d[d["Year"].between(start, end)]
+
+    p0 = d[d["Year"] == start][["City", "Price"]].rename(columns={"Price": "p_start"})
+    p1 = d[d["Year"] == end][["City", "Price"]].rename(columns={"Price": "p_end"})
+
+    df1 = p0.merge(p1, on="City", how="inner")
+    df1["mean_growth"] = (np.log(df1["p_end"]) - np.log(df1["p_start"])) / (end - start) * 100
+    df1["Property_Type"] = segment
+    growth_stats.append(df1)
+
+all_stats = pd.concat(growth_stats)
+
+city_counts = all_stats["City"].value_counts()
+common_cities = city_counts[city_counts == 3].index.tolist()
+cities_sorted = (
+    all_stats[all_stats["City"].isin(common_cities)]
+    .groupby("City")["mean_growth"].mean()
+    .sort_values()
+    .index.tolist()
+)
+SEGMENT_COLORS = {
+    "Apartment": "#238b45",
+    "Single-family house": "#e6550d",
+    "Multi-family house": "#c61a2b",
+}
+GREIX_HL_COLOR = "darkgray"
+
+data_by_segment = {}
+for segment in segments:
+    df_seg_local = all_stats[(all_stats["Property_Type"] == segment) & (all_stats["City"].isin(cities_sorted))]
+    df_seg_local = df_seg_local.sort_values("mean_growth", ascending=True).reset_index(drop=True)
+    data_by_segment[segment] = df_seg_local
+
+fig = go.Figure()
+
+for i, segment in enumerate(segments):
+    df_seg_local = data_by_segment[segment]
+    colors = [GREIX_HL_COLOR if city == "GREIX" else SEGMENT_COLORS[segment] for city in df_seg_local["City"]]
+    visible = True if i == 0 else False
+    fig.add_trace(
+        go.Bar(
+            x=df_seg_local["mean_growth"],
+            y=df_seg_local["City"],
+            orientation='h',
+            marker=dict(color=colors),
+            text=[f"{v:.2f}" for v in df_seg_local["mean_growth"]],
+            textposition='outside',
+            name=segment,
+            visible=visible,
+        )
+    )
+
+buttons = []
+for i, segment in enumerate(segments):
+    visible = [False]*len(segments)
+    visible[i] = True
+    buttons.append(dict(
+        method='update',
+        label=segment,
+        args=[{'visible': visible},
+              {'title': f'Average Yearly Growth ({segment}) 2010–2024'}]
+    ))
+
+fig.update_layout(
+    updatemenus=[dict(
+        active=0,
+        buttons=buttons,
+        x=1.0, xanchor='left',
+        y=1.13, yanchor='top',
+        direction="down",
+        showactive=True,
+        font=dict(size=15)
+    )],
+    title=f"Average Yearly Growth ({segments[0]}) 2010–2024",
+    xaxis_title="Avg. % per year",
+    yaxis_title="City",
+    height=750,
+    margin=dict(l=110, r=40, t=60, b=40),
+    plot_bgcolor='white',
+)
+
+fig.update_traces(cliponaxis=False)
+fig.show()
+```
+
+To move from price levels to growth speed, average yearly price growth from 2010 to 2024 is compared across cities and property types. The national benchmark (GREIX) is kept as a reference point, while the view is switched between apartments, single-family houses, and multi-family houses to see whether the same cities remain ahead once the housing segment changes @fig-growth-by-segment.
+
+Across the three segments, a broad post-2010 expansion is visible, but the distribution of growth across cities is not identical. In the apartment view, growth is found to be strong in many locations, with several major markets positioned close to the national benchmark, while a smaller set of cities remains clearly below it. When the focus is shifted to single-family houses, growth appears more moderate overall and the ranking becomes more compressed, suggesting that differences across cities are present but less extreme than in the apartment segment.
+
+A clearer reordering is observed in the multi-family segment. Cities that perform strongly for apartments are not necessarily placed at the top once multi-family housing is considered, and several locations emerge as stronger performers in this segment than they do elsewhere. Overall, @fig-growth-by-segment reinforces the idea that divergence is shaped by both where housing is located and what type of housing is being observed: the post-2010 boom is reflected across segments, but the cities leading that growth are not the same in every part of the market.
+ 
+
+## Economic Factors: 
+
+### Gross Domestic Product (GDP) 
+
+To relate housing price developments to broader economic conditions, housing prices are compared with Gross Domestic Product (GDP) for Germany. GDP reflects overall economic activity and income levels and is therefore a natural starting point when examining macroeconomic influences on the housing market.
+
+@fig-gdp depicts the long-term development of average housing prices together with GDP from 1965 to 2024. Both series exhibit an upward trend over time, indicating long-run economic growth alongside rising housing prices. However, the timing and strength of these developments differ. While GDP grows relatively steadily over the entire period, housing prices increase more slowly until the early 2000s and then rise sharply after around 2010. This suggests that recent housing price growth has been stronger than what would be implied by overall economic growth alone.
+
+To better capture short-term dynamics, @fig-gdp-housing indicates year-on-year percentage changes in housing prices and GDP. This comparison reveals clear differences in volatility between the two series. GDP growth fluctuates strongly, with frequent and sometimes large positive and negative changes. In contrast, housing price growth is much smoother and shows fewer extreme movements.
+
+Several periods of negative GDP growth do not coincide with strong declines in housing prices. In many years, housing prices continue to grow even when GDP contracts, or react only mildly. This is particularly visible in the early 1990s, the late 1990s, and around the global financial crisis. These patterns indicate that short-term housing price movements are not tightly linked to short term changes in GDP.
+
+At the same time, sharp housing price declines tend to occur less frequently and may appear with a delay relative to economic downturns. This suggests that housing prices adjust more gradually than overall economic output. The period after 2010 stands out, as housing prices increase strongly despite relatively moderate GDP growth, while a noticeable correction appears only in the most recent years.
+
+Overall, the GDP analysis shows that while housing prices and economic growth move in the same direction in the long run, GDP alone cannot explain short-term housing price dynamics. This indicates that additional macroeconomic factors play an important role in shaping housing price developments in Germany.
+
+```{python}
+#| label: fig-gdp
+#| fig-cap: "Germany: Housing prices versus GDP, 1965–2024."
+
+gdp_path = "data/GDP 1960-2024.csv"
+gdp_raw = pd.read_csv(gdp_path, skiprows=4)
+gdp_germany = gdp_raw[gdp_raw["Country Name"] == "Germany"].copy()
+gdp_germany = (
+    gdp_germany
+    .drop(columns=["Country Name", "Country Code", "Indicator Name", "Indicator Code"])
+    .melt(var_name="Year", value_name="GDP (US$)")
+)
+gdp_germany["Year"] = pd.to_numeric(gdp_germany["Year"], errors="coerce")
+gdp_germany["GDP (US$)"] = pd.to_numeric(gdp_germany["GDP (US$)"], errors="coerce")
+gdp_germany = gdp_germany[(gdp_germany["Year"] >= 1964) & (gdp_germany["Year"] <= 2025)]
+
+greix_path = "data/GREIX_all_cities_data.xlsx"
+greix = pd.read_excel(greix_path)
+greix_nat = greix[greix["City"] == "GREIX"].copy()
+yearly_prices_nat = (
+    greix_nat
+    .groupby("Year", as_index=False)["Price"]
+    .mean()
+    .rename(columns={"Price": "Average_Price (€)"})
+)
+
+merged_gdp = (
+    pd.merge(yearly_prices_nat, gdp_germany, on="Year", how="inner")
+    .sort_values("Year")
+)
+
+fig, ax1 = plt.subplots(figsize=(13, 6.5))
+
+line1, = ax1.plot(
+    merged_gdp["Year"], merged_gdp["Average_Price (€)"],
+    color="#1f77b4", marker="o", linewidth=2.6, label="Average Housing Price (€)"
+)
+ax1.set_xlabel("Year", fontsize=13)
+ax1.set_ylabel("Average Housing Price (€)", color="#1f77b4", fontsize=13)
+ax1.tick_params(axis="y", labelcolor="#1f77b4")
+
+ax2 = ax1.twinx()
+line2, = ax2.plot(
+    merged_gdp["Year"], merged_gdp["GDP (US$)"] / 1e12,
+    color="#E69F00", marker="s", linestyle="--", linewidth=2, label="GDP (Trillion US$)"
+)
+ax2.set_ylabel("GDP (Trillion US$)", color="#E69F00", fontsize=13)
+ax2.tick_params(axis="y", labelcolor="#E69F00")
+
+plt.title("Germany: Housing Prices vs GDP (1964–2025)", fontsize=17, fontweight="bold", pad=16)
+
+lines = [line1, line2]
+labels = [line.get_label() for line in lines]
+ax1.legend(lines, labels, loc="upper left", frameon=True, facecolor="white", fontsize=11)
+
+ax1.grid(alpha=0.3)
+sns.despine(right=False, left=False)
+
+tick_years = range(int(merged_gdp["Year"].min()), int(merged_gdp["Year"].max()) + 1, 5)
+ax1.set_xticks(tick_years)
+plt.xticks(rotation=38, fontsize=11)
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-gdp-housing
+#| fig-cap: "Year-on-year percentage changes: Housing prices versus GDP, Germany."
+#| fig-width: 12
+#| fig-height: 6
+
+sns.set_theme(style="whitegrid")
+
+gdp_df = merged_gdp.copy()
+gdp_df["Housing_YoY_%"] = gdp_df["Average_Price (€)"].pct_change() * 100
+gdp_df["GDP_YoY_%"] = gdp_df["GDP (US$)"].pct_change() * 100
+
+plot_df = gdp_df.dropna(subset=["Housing_YoY_%", "GDP_YoY_%"]).copy()
+plot_df = plot_df.sort_values("Year")
+
+fig, ax = plt.subplots()
+
+crisis_periods = [
+    (2008, 2010),
+    (2020, 2021),
+]
+
+for start, end in crisis_periods:
+    if end < plot_df["Year"].min() or start > plot_df["Year"].max():
+        continue
+    ax.axvspan(
+        start - 0.5,
+        end + 0.5,
+        color="#EEEEEE",
+        alpha=0.4,
+        zorder=0,
+    )
+
+bar_colors = np.where(plot_df["GDP_YoY_%"] >= 0, "#FDB863", "#B2182B")
+ax.bar(
+    plot_df["Year"],
+    plot_df["GDP_YoY_%"],
+    color=bar_colors,
+    alpha=0.8,
+    width=0.8,
+    zorder=1,
+)
+
+housing_line, = ax.plot(
+    plot_df["Year"],
+    plot_df["Housing_YoY_%"],
+    color="#1F78B4",
+    marker="o",
+    markersize=5,
+    linewidth=2.3,
+    zorder=3,
+)
+
+ax.axhline(0, color="grey", linewidth=1, linestyle=":", zorder=2)
+
+ax.set_title(
+    "GDP vs Housing Prices in Germany\n1964–2025 % Change",
+    fontsize=15,
+    fontweight="bold",
+    pad=15,
+)
+ax.set_xlabel("Year", fontsize=12)
+ax.set_ylabel("Year-on-Year Change (%)", fontsize=12)
+
+ax.set_xlim(1964, 2025)
+ax.set_xticks(range(1965, 2026, 5))
+plt.xticks(rotation=45)
+
+positive_patch = Patch(color="#FDB863", label="Positive GDP change")
+negative_patch = Patch(color="#B2182B", label="Negative GDP change")
+
+ax.legend(
+    [housing_line, positive_patch, negative_patch],
+    ["Housing YoY % change", "Positive GDP change", "Negative GDP change"],
+    loc="upper right",
+    fontsize=10,
+    frameon=True,
+    framealpha=0.9,
+    facecolor="white",
+    edgecolor="lightgrey",
+    borderpad=0.6,
+    labelspacing=0.4,
+    handlelength=2.0,
+)
+
+ax.grid(alpha=0.3)
+sns.despine()
+plt.tight_layout()
+plt.show()
+```
+
+### Interest Rates
+
+In addition to GDP, interest rates are an important macroeconomic factor for the housing market, as they directly affect borrowing costs for households. Figure 7 compares year-on-year housing price growth with changes in long-term interest rates in Germany over the period from 1991 to 2025.
+
+The @fig-interest shows that housing price growth and interest rate changes often move in opposite directions. Periods with declining interest rates are frequently associated with positive housing price growth, while periods with increasing interest rates tend to coincide with weaker housing price growth.
+
+From the mid-1990s to the mid-2000s, interest rates mostly decline or remain low, while housing prices show moderate but positive growth. After 2010, housing price growth becomes stronger, while interest rate changes are generally small or negative. This period coincides with a sustained phase of low interest rates.
+
+A particularly clear pattern appears in the most recent years. Around 2022, interest rates increase sharply, which is followed by a strong decline in housing price growth. This is the most pronounced negative change in housing prices observed in the figure. In the subsequent years, as interest rate increases slow down, housing price growth begins to recover slightly, although it remains negative.
+
+Overall, the @fig-interest suggests a closer short term relationship between interest rate changes and housing price growth than was observed for GDP. While the relationship is not perfectly stable over time, the recent period highlights that sharp increases in interest rates are associated with strong downward adjustments in housing prices.
+
+```{python}
+#| label: fig-interest
+#| fig-cap: "Interest rates versus housing prices: Year-on-year changes, Germany, 1991–2025."
+#| fig-width: 12
+#| fig-height: 6
+
+ir_raw = pd.read_csv("data/Long term interest rate-Germany.csv")
+ir_cols = [c.strip() for c in ir_raw.columns]
+ir_raw.columns = ir_cols
+
+ir_col = [c for c in ir_cols if "interest rate" in c.lower()][0]
+date_col = [c for c in ir_cols if "date" in c.lower()]
+if date_col:
+    ir_raw["DATE"] = pd.to_datetime(ir_raw[date_col[0]], errors="coerce")
+else:
+    ir_raw["DATE"] = pd.to_datetime(ir_raw.iloc[:, 0], errors="coerce")
+
+ir_raw["Year"] = ir_raw["DATE"].dt.year
+ir_raw = ir_raw.rename(columns={ir_col: "Interest_Rate"})
+ir_yearly = (
+    ir_raw
+    .groupby("Year", as_index=False)["Interest_Rate"]
+    .mean()
+    .dropna(subset=["Year", "Interest_Rate"])
+)
+
+greix = pd.read_excel("data/GREIX_all_cities_data.xlsx")
+greix_nat = greix[greix["City"] == "GREIX"].copy()
+prices_nat = (
+    greix_nat
+    .groupby("Year", as_index=False)["Price"]
+    .mean()
+    .rename(columns={"Price": "Average_Price (€)"})
+)
+prices_nat = prices_nat[prices_nat["Year"] >= 1990].reset_index(drop=True)
+
+merged_ir = pd.merge(prices_nat, ir_yearly, on="Year", how="inner").sort_values("Year")
+plot_df = merged_ir.copy()
+plot_df["Housing_YoY_%"] = plot_df["Average_Price (€)"].pct_change() * 100
+plot_df["IR_Change_pp"] = plot_df["Interest_Rate"].diff()
+plot_df = plot_df.dropna(subset=["Housing_YoY_%", "IR_Change_pp"]).copy()
+plot_df = plot_df[(plot_df["Year"] >= 1990) & (plot_df["Year"] <= 2025)]
+
+bar_colors = np.where(plot_df["IR_Change_pp"] >= 0, "#4CAF50", "#D62728")
+
+fig, ax1 = plt.subplots(figsize=(13, 6))
+
+ax1.plot(
+    plot_df["Year"],
+    plot_df["Housing_YoY_%"],
+    color="#1F78B4",
+    marker="o",
+    linewidth=2.5,
+    label="Housing YoY % change"
+)
+ax1.set_xlabel("Year", fontsize=12)
+ax1.set_ylabel("Housing Year-on-Year Change (%)", fontsize=12, color="#1F78B4")
+ax1.tick_params(axis="y", labelcolor="#1F78B4")
+ax1.axhline(0, color="grey", linewidth=1, linestyle=":")
+
+ax2 = ax1.twinx()
+ax2.bar(
+    plot_df["Year"],
+    plot_df["IR_Change_pp"],
+    color=bar_colors,
+    alpha=0.8,
+    width=0.8,
+    zorder=0
+)
+ax2.set_ylabel("Interest Rate Change (percentage points)", fontsize=12, color="#555555")
+ax2.tick_params(axis="y", labelcolor="#555555")
+
+for (start, end) in [(2008, 2010), (2020, 2021)]:
+    ax1.axvspan(start, end, color="#ECECEC", alpha=0.6, zorder=0)
+
+ax1.set_xlim(1990, 2025)
+ax1.set_xticks(np.arange(1990, 2026, 5))
+ax1.tick_params(axis="x", rotation=45)
+
+plt.title(
+    "Long-Term Interest Rates vs Housing Prices in Germany\n1991–2025 % Change",
+    fontsize=14,
+    fontweight="bold",
+    pad=15,
+)
+
+legend_elements = [
+    Line2D([0], [0], color="#1F78B4", marker="o", linewidth=2.5, label="Housing YoY % change"),
+    Patch(facecolor="#4CAF50", edgecolor="none", label="Positive interest rate change"),
+    Patch(facecolor="#D62728", edgecolor="none", label="Negative interest rate change"),
+]
+ax1.legend(handles=legend_elements, loc="upper left", frameon=True)
+
+ax1.grid(alpha=0.3)
+for spine in ["top", "right"]:
+    ax1.spines[spine].set_visible(False)
+    ax2.spines[spine].set_visible(False)
+
+plt.tight_layout()
+plt.show()
+```
+### Unemployment
+
+Labor market conditions provide another angle on housing market dynamics, since unemployment captures changes in income security and household confidence. In @fig-unemployment, year-on-year housing price growth is placed alongside changes in the unemployment rate in Germany from 2006 to 2025, allowing the two series to be compared over the same turning points.
+
+A clear short term link is not consistently visible. Housing prices are seen to increase in several periods even when unemployment rises, and declines in housing price growth also occur when unemployment changes remain small. The 2010s illustrate this mixed relationship well. Between roughly 2010 and 2019, unemployment mostly declines or stays stable while housing prices grow strongly, which fits the idea of a favorable economic environment. However, the pattern is not one-to-one, as housing price growth remains strong even when unemployment movements are limited.
+
+The correction after 2022 stands out most. A sharp downturn in housing price growth becomes visible, while unemployment changes remain comparatively modest during the same period. This suggests that the size of the adjustment cannot be attributed to unemployment developments alone, and that other forces most notably financing conditions—must have been more decisive in shaping the turning point.
+
+Overall, unemployment appears to play a weaker and less direct role in short-run housing price movements than interest rates. While labor market conditions form part of the economic backdrop, changes in unemployment on their own do not seem to account for the main shifts observed in Germany’s housing price growth.
+
+```{python}
+#| label: fig-unemployment
+#| fig-cap: "Unemployment versus housing prices: Year-on-year changes, Germany, 2006–2025."
+#| fig-width: 12
+#| fig-height: 6
+
+unemp = pd.read_excel("data/Germany annual average unemployment rate 2005-2025.xlsx")
+unemp.columns = ["Year", "Unemployment_Rate (%)"]
+
+
+greix_national = greix[greix["City"] == "GREIX"].copy()
+yearly_prices_nat = (
+    greix_national
+    .groupby("Year", as_index=False)["Price"]
+    .mean()
+    .rename(columns={"Price": "Average_Price (€)"})
+)
+
+yearly_prices_nat = yearly_prices_nat[yearly_prices_nat["Year"].between(2005, 2025)]
+
+merged_unemp = (
+    pd.merge(yearly_prices_nat, unemp, on="Year", how="inner")
+    .sort_values("Year")
+)
+
+un_df = merged_unemp.copy()
+un_df["Housing_YoY_%"] = un_df["Average_Price (€)"].pct_change() * 100
+un_df["Unemp_Change_pp"] = un_df["Unemployment_Rate (%)"].diff()
+
+plot_df = un_df.dropna(subset=["Housing_YoY_%", "Unemp_Change_pp"]).copy()
+plot_df = plot_df[(plot_df["Year"] >= 2005) & (plot_df["Year"] <= 2025)]
+
+bar_colors = np.where(plot_df["Unemp_Change_pp"] > 0, "#FDB863", "#B2182B")
+
+fig, ax1 = plt.subplots(figsize=(13, 6))
+
+ax1.plot(
+    plot_df["Year"],
+    plot_df["Housing_YoY_%"],
+    color="#1F78B4",
+    marker="o",
+    linewidth=2.5,
+)
+ax1.set_xlabel("Year", fontsize=12)
+ax1.set_ylabel("Housing Year-on-Year Change (%)", fontsize=12, color="#1F78B4")
+ax1.tick_params(axis="y", labelcolor="#1F78B4")
+ax1.axhline(0, color="grey", linewidth=1, linestyle=":")
+
+ax2 = ax1.twinx()
+ax2.bar(
+    plot_df["Year"],
+    plot_df["Unemp_Change_pp"],
+    color=bar_colors,
+    alpha=0.8,
+    width=0.8,
+)
+ax2.set_ylabel("Unemployment Rate Change (percentage points)", fontsize=12, color="#555555")
+ax2.tick_params(axis="y", labelcolor="#555555")
+
+for (start, end) in [(2008, 2010), (2020, 2021)]:
+    ax1.axvspan(start, end, color="#ECECEC", alpha=0.6, zorder=0)
+
+ax1.set_xlim(2005, 2025)
+ax1.set_xticks(np.arange(2005, 2026, 5))
+ax1.tick_params(axis="x", rotation=45)
+
+plt.title(
+    "Unemployment vs Housing Prices in Germany\n2006–2025 % Change",
+    fontsize=14,
+    fontweight="bold",
+    pad=15,
+)
+
+legend_elements = [
+    Line2D([0], [0], color="#1F78B4", marker="o", linewidth=2.5, label="Housing YoY % change"),
+    Patch(facecolor="#FDB863", edgecolor="none", label="Positive unemployment change"),
+    Patch(facecolor="#B2182B", edgecolor="none", label="Negative unemployment change"),
+]
+ax1.legend(handles=legend_elements, loc="upper left", frameon=True)
+
+ax1.grid(alpha=0.3)
+for spine in ["top", "right"]:
+    ax1.spines[spine].set_visible(False)
+    ax2.spines[spine].set_visible(False)
+
+plt.tight_layout()
+plt.show()
+```
+
+### Example
+
+![Comparison of housing prices and financing conditions for an 80 m² flat in 1990, 2010, and 2024.](image.png){#fig-compare}
+
+After looking at GDP, interest rates, and unemployment separately, this example illustrates how these factors come together from a household perspective.
+
+The @fig-compare compares the price of the same 80 m² flat at three points in time: 1990, 2010, and 2024. While interest rates declined strongly over time, housing prices increased substantially. In 1990, prices were relatively low, but interest rates were high. In 2010, interest rates dropped significantly, and housing prices increased only slightly. By 2024, interest rates remained low compared to the past, but housing prices more than doubled.
+
+As a result, despite lower interest rates, the total cost of purchasing the same flat over a 30-year period is much higher in 2024 than in earlier years. This example helps to explain why housing affordability has worsened even in a low-interest environment.
+
+Overall, this illustrates that lower interest rates alone do not guarantee affordable housing when housing prices rise strongly. It connects the macroeconomic patterns observed earlier with real outcomes faced by households.
+
+## Conclusion
+
+This analysis examined long-term housing price developments in Germany using data from 1964 to 2025 for around 21 cities and different property types. By combining city-level housing data with national indicators and macroeconomic variables, it was possible to separate general housing market trends from regional and structural differences.
+
+The analysis showed that housing prices across German cities share a common long-term trend, but the strength of price growth differs substantially across regions. Large cities such as Munich, Hamburg, Frankfurt, and Cologne consistently exhibit higher price levels and stronger growth, while cities such as Chemnitz, Dortmund, and Duisburg remain below the national average. These regional differences have become more pronounced since around 2010.
+
+When housing price growth was examined across different periods, it became clear that cities with strong growth change over time. While Munich dominates in earlier periods, other cities such as Potsdam and Luebeck show stronger relative growth after 2014. This indicates that regional housing market dynamics are not static and evolve over time.
+
+The comparison across property types showed that apartments, single-family houses, and multi-family houses follow very similar overall trends. Differences between property types exist mainly in price levels and variability, but they do not substantially alter the ranking of cities. This suggests that regional factors are more important than property type in explaining long-term housing price growth.
+
+The analysis of macroeconomic factors showed that GDP growth and housing price growth move in the same direction in the long run, but short-term housing price dynamics cannot be explained by GDP alone. Housing prices are considerably less volatile than GDP and often continue to grow during periods of weak or negative economic growth. Unemployment changes also show no strong short-term relationship with housing price growth and cannot explain major housing market turning points.
+
+In contrast, interest rates display a clearer short-term relationship with housing prices. Periods of declining or low interest rates are associated with strong housing price growth, while sharp increases in interest rates coincide with strong downward adjustments in housing prices, most notably after 2022. This highlights the central role of financing conditions in shaping housing market dynamics.
+
+The affordability example of a standard 80 m² flat illustrates how these factors interact in practice. While interest rates declined strongly over time, housing prices increased substantially, leading to higher total purchase costs despite lower borrowing costs. This helps explain why housing affordability has worsened even in a low-interest environment.
+
+Overall, the results show that long-term housing price growth in Germany is shaped by a combination of regional factors and macroeconomic conditions. While economic growth and labor market conditions provide background context, interest rates play a key role in short-term housing price adjustments, and regional differences remain a defining feature of the German housing market.
+
+## Appendix 
+
+National Housing Market Structure and Dispersion
+
+### National Housing Market Structure and Dispersion
+
+```{python}
+#| label: fig-segment-price
+#| fig-cap: National average housing prices in Germany by property type, 1965–2025. Apartments and single-family houses have experienced the strongest long-run price growth, especially since 2010, while multi-family house prices have lagged behind.
+segments = ["Apartment", "Single-family house", "Multi-family house"]
+colors = {
+    "Apartment": "#238b45",
+    "Single-family house": "#e6550d",
+    "Multi-family house": "#c61a2b",
+}
+
+traces = []
+for seg in segments:
+    seg_df = segment_avg[segment_avg["Property_Type"] == seg]
+    traces.append(go.Scatter(
+        x=seg_df["Year"], y=seg_df["Price"],
+        mode="lines+markers",
+        name=seg,
+        line=dict(color=colors[seg], width=3),
+        marker=dict(size=7),
+        visible=(seg == "Apartment")  
+    ))
+
+fig = go.Figure(traces)
+
+def _title(seg_text):
+    return dict(text=f"National Price Trend: {seg_text}", x=0.02, xanchor="left")
+
+buttons = []
+for i, seg in enumerate(segments):
+    vis = [False] * len(segments)
+    vis[i] = True
+    buttons.append(dict(
+        label=seg,
+        method="update",
+        args=[
+            {"visible": vis},
+            {"title": _title(seg)}  
+        ]
+    ))
+
+buttons.append(dict(
+    label="All Properties",
+    method="update",
+    args=[
+        {"visible": [True] * len(segments)},
+        {"title": _title("All property types")} 
+    ]
+))
+
+fig.update_layout(
+    updatemenus=[dict(
+        type="dropdown",
+        buttons=buttons,
+        direction="down",
+        x=1.01,
+        y=1.0,
+        xanchor="left",
+        yanchor="top",
+        showactive=True,
+        font=dict(size=15),
+    )],
+    title=_title("Apartment"),
+    xaxis_title="Year",
+    yaxis_title="Price (€/m²)",
+    legend_title_text="Property Type",
+    margin=dict(t=90, l=60, r=60, b=60) 
+)
+
+fig.show()
+```
+### Cross city dispersion and inequality
+
+```{python}
+#| label: fig-max-min
+#| fig-cap: Ratio of the most expensive to least expensive city for each property type in Germany, 1990–2025. Lines show how price inequality between cities has widened, particularly for apartments and multi-family houses since the 2010s.
+def ratio_most_least(d, segment, start_year=1990, end_year=2024):
+    x = d[(d["Property_Type"] == segment) & d["Price"].notna()].copy()
+    x = x[(x["Year"] >= start_year) & (x["Year"] <= end_year)]
+    byy = x.groupby("Year")["Price"]
+    out = byy.apply(lambda s: s.max() / s.min() if s.notna().sum() >= 2 else np.nan)
+    return out.dropna()
+
+segments = ["Apartment", "Single-family house", "Multi-family house"]
+colors = {
+    "Apartment": "#238b45",
+    "Single-family house": "#e6550d",
+    "Multi-family house": "#c61a2b",
+}
+
+traces = []
+for seg in segments:
+    r = ratio_most_least(df, seg, start_year=1990, end_year=2024)
+    traces.append(go.Scatter(
+        x=r.index,
+        y=r.values,
+        mode="lines+markers",
+        name=seg,
+        line=dict(color=colors[seg], width=3),
+        marker=dict(size=7),
+        visible=(seg == "Apartment")  
+    ))
+
+fig = go.Figure(traces)
+
+def _title(seg_text):
+    return dict(text=f"Ratio of Most to Least Expensive: {seg_text}", x=0.02, xanchor="left")
+
+buttons = []
+for i, seg in enumerate(segments):
+    vis = [False] * len(segments)
+    vis[i] = True
+    buttons.append(dict(
+        label=seg,
+        method="update",
+        args=[
+            {"visible": vis},
+            {"title": _title(seg)}
+        ]
+    ))
+
+buttons.append(dict(
+    label="All Properties",
+    method="update",
+    args=[
+        {"visible": [True] * len(segments)},
+        {"title": _title("All property types")} 
+    ]
+))
+
+fig.update_layout(
+    updatemenus=[dict(
+        type="dropdown",
+        buttons=buttons,
+        direction="down",
+        x=1.01,
+        y=1.0,
+        xanchor="left",
+        yanchor="top",
+        showactive=True,
+        font=dict(size=15),
+    )],
+    title=_title("Apartment"),
+    xaxis_title="Year",
+    yaxis_title="Max / Min price",
+    legend_title_text="Property Type",
+    margin=dict(t=90, l=60, r=60, b=60) 
+)
+
+fig.show()
+```
+
+```{python}
+#| label: fig-city-band
+#| fig-cap: City price dispersion bands, 1990–2024. The median (p50) shows the “typical” city each year, while the shaded ranges (p25–p75 and p10–p90) summarize how widely city prices are spread. A widening band indicates growing divergence across local markets.
+
+def city_dispersion_bands(d, segment, start_year=1990, end_year=2024, inflation=1, min_cities=5):
+    x = d[(d["Property_Type"] == segment) & d["Price"].notna()].copy()
+    x = x[(x["Year"] >= start_year) & (x["Year"] <= end_year)]
+
+    if "Inflation" in x.columns:
+        x = x[x["Inflation"] == inflation]
+    if "City" in x.columns:
+        x = x[~x["City"].isin(["GREIX"])]
+
+    annual = x.groupby(["Year", "City"], as_index=False)["Price"].mean()
+    wide = annual.pivot(index="Year", columns="City", values="Price").sort_index()
+    wide = wide[wide.notna().sum(axis=1) >= min_cities]
+
+    if wide.empty or wide.shape[1] == 0:
+        return pd.DataFrame()
+
+    qs = wide.quantile([0.10, 0.25, 0.50, 0.75, 0.90], axis=1, numeric_only=True).T
+    qs.columns = ["p10", "p25", "p50", "p75", "p90"]
+    return qs
+
+segments = ["Apartment", "Single-family house", "Multi-family house"]
+default_seg = "Apartment"
+
+traces = []
+idx_map = {}
+
+for seg in segments:
+    qs = city_dispersion_bands(df, seg, 1990, 2024, inflation=1, min_cities=5)
+    idx_map[seg] = []
+
+    if qs.empty:
+        continue
+
+    idx_map[seg].append(len(traces))
+    traces.append(go.Scatter(x=qs.index, y=qs["p90"], mode="lines", line=dict(width=0),
+                             showlegend=False, visible=(seg == default_seg)))
+    idx_map[seg].append(len(traces))
+    traces.append(go.Scatter(x=qs.index, y=qs["p10"], mode="lines", line=dict(width=0),
+                             fill="tonexty", name="p10–p90 (cities)",
+                             visible=(seg == default_seg)))
+    idx_map[seg].append(len(traces))
+    traces.append(go.Scatter(x=qs.index, y=qs["p75"], mode="lines", line=dict(width=0),
+                             showlegend=False, visible=(seg == default_seg)))
+    idx_map[seg].append(len(traces))
+    traces.append(go.Scatter(x=qs.index, y=qs["p25"], mode="lines", line=dict(width=0),
+                             fill="tonexty", name="p25–p75 (cities)",
+                             visible=(seg == default_seg)))
+
+    idx_map[seg].append(len(traces))
+    traces.append(go.Scatter(x=qs.index, y=qs["p50"], mode="lines", name="Median city",
+                             line=dict(width=3), visible=(seg == default_seg)))
+
+fig = go.Figure(traces)
+
+def _title(seg_text):
+    return dict(text=f"City price dispersion bands — {seg_text}", x=0.02, xanchor="left")
+
+buttons = []
+for seg in segments:
+    vis = [False] * len(traces)
+    for k in idx_map.get(seg, []):
+        vis[k] = True
+    buttons.append(dict(
+        label=seg,
+        method="update",
+        args=[
+            {"visible": vis},
+            {"title": _title(seg)}  
+        ]
+    ))
+
+fig.update_layout(
+    updatemenus=[dict(
+        type="dropdown",
+        buttons=buttons,
+        direction="down",
+        x=1.01,
+        y=0.8,
+        xanchor="left",
+        yanchor="top",
+        showactive=True,
+        font=dict(size=15),
+    )],
+    title=_title(default_seg),
+    xaxis_title="Year",
+    yaxis_title="Price level (bands across cities)",
+    margin=dict(t=90, l=60, r=60, b=60)
+)
+
+fig.show()
+```
+
+Taken together, the  @fig-max-min and @fig-city-band separate levels from dispersion. The @fig-city-band chart shows how the “typical” city price evolves, while the shaded ranges reveal whether cities move together or fan out. From the 2010s onward, the distribution widens markedly, meaning the upswing was not uniform: some markets pulled away from the pack. The @fig-max-min plot confirms that this divergence is not just a broad spread at the extremes, the most expensive city became many times pricier than the least expensive city, and the gap stays elevated even after the post-2022 cooling. The “All properties" view in @fig-max-min shows the same pattern in aggregate, indicating that cross city divergence is a general feature of the period, not confined to a single segment.
+
+### Do cheaper cities catch up? Two-year ahead growth above vs below the median
+
+```{python}
+#| label: fig-avg-2yr
+#| fig-cap: Average real two year ahead price growth for cities above and below the median price, 2000–2024. Blue bars represent cities with below-median prices, orange bars represent those above. This plot highlights changing fortunes in the housing market after 2010, above median cities saw faster subsequent growth, but this pattern reverses after 2020.
+def above_below_median_city_growth(d, segment="Apartment", start_year=2000, end_year=2024, horizon=2):
+    nom = d[(d["Property_Type"] == segment) & d["Price"].notna()][["City","Year","Price"]].copy()
+    real = d[(d["Property_Type"] == segment) & d["Index"].notna()][["City","Year","Index"]].copy()
+
+    end_t = min(end_year - horizon, int(d["Year"].max()) - horizon)
+    years = range(start_year, end_t + 1)
+
+    rows = []
+    for y in years:
+        nom_y = nom[nom["Year"] == y].copy()
+        if nom_y["City"].nunique() < 4:
+            continue
+
+        med = nom_y["Price"].median()
+        nom_y["group"] = np.where(nom_y["Price"] >= med, "Above median", "Below median")
+
+        idx_t = real[real["Year"] == y].set_index("City")["Index"]
+        idx_f = real[real["Year"] == y + horizon].set_index("City")["Index"]
+        g = (np.log(idx_f) - np.log(idx_t)) * 100  # log points
+
+        tmp = nom_y.set_index("City")[["group"]].join(g.rename("growth"), how="inner").dropna()
+        if tmp.empty:
+            continue
+
+        out = tmp.groupby("group")["growth"].mean()
+        rows.append({"Year": y, "Above median": out.get("Above median", np.nan), "Below median": out.get("Below median", np.nan)})
+
+    res = pd.DataFrame(rows).set_index("Year").sort_index()
+    return res
+
+res12 = above_below_median_city_growth(df, segment="Apartment", start_year=2000, end_year=2024, horizon=2)
+
+years = res12.index.to_numpy()
+x = np.arange(len(years))
+w = 0.38
+fig = go.Figure()
+fig.add_trace(go.Bar(
+    x=years, y=res12["Below median"],
+    name="Below median", marker_color="#3471C1"
+))
+fig.add_trace(go.Bar(
+    x=years, y=res12["Above median"],
+    name="Above median", marker_color="#EA8C3B"
+))
+fig.update_layout(
+    barmode="group",
+    title="Avg Real 2-Year-Ahead Growth: Above vs Below Median Cities",
+    xaxis_title="Year",
+    yaxis_title="Avg growth over next 2 years",
+    legend=dict(x=0.8, y=1.1, orientation="h")
+)
+fig.show()
+```
+
+Each year in this @fig-avg-2yr starts with a simple split: cities that are priced above the median at that time (orange) and cities below the median (blue). Then it asks one forward looking question: over the next two years, which group moves more in real terms?
+
+In the early 2000s, there isn’t much to separate them. Both colours hover around zero and often slip below it, so the typical outcome over the next two years is flat or weak whether a city begins expensive or cheap. After 2010, the bars pull apart. For much of the 2010s, the orange bars sit higher than the blue bars, meaning the cities that were already above the median usually posted the stronger two year gains. Instead of cheaper cities catching up, the upper half often extended its lead.
+
+The pattern shifts again around 2020. The two groups come back together and, in the latest years, both turn negative. Here the orange bars tend to drop further, suggesting that when conditions worsen, the more expensive cities often fall more, while the cheaper half sometimes holds up a bit better.
+
+Read as a whole, the chart tells a clear arc: a quiet early period, a decade where the already expensive cities led the rise, and a recent phase where the downturn hits the top half harder.
+
+```{python}
+#| label: fig-facets
+#| fig-cap: City by city price trends for German residential properties 1965–2025. Each panel highlights a single city’s trajectory (bold) with all other cities shown as faint context lines. This visualization reveals both national patterns and apartment segment.
+#| fig-width: 19
+#| fig-height: 15
+def plot_city_facets(yearly_prices, segment, context_color, focus_color, title, ncols=4):
+    df = yearly_prices[yearly_prices["Property_Type"].str.strip() == segment].copy()
+    df = (
+        df.groupby(["City", "Year"], as_index=False)["Price"]
+        .mean()
+        .sort_values(["City", "Year"])
+        .reset_index(drop=True)
+    )
+    cities = sorted(df["City"].unique())
+    x_major = [1960, 1980, 2000, 2020]
+    x_min, x_max = 1960, 2025
+
+    nrows = int(np.ceil(len(cities) / ncols))
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=(19, 15),
+        sharex=False,
+        sharey=False
+    )
+    axes = np.array(axes).reshape(-1)
+
+    context_lw = 1.1
+    context_alpha = 0.23
+
+    title_fs = 16
+    title_fw = "bold"
+    tick_fs = 11
+    tick_fw = "bold"
+    axis_label_fs = 15
+    axis_label_fw = "bold"
+
+    groups = list(df.groupby("City"))
+    for i, city in enumerate(cities):
+        ax = axes[i]
+        for _, grp in groups:
+            ax.plot(
+                grp["Year"], grp["Price"],
+                color=context_color,
+                lw=context_lw,
+                alpha=context_alpha,
+                zorder=1
+            )
+        sub = df[df["City"] == city]
+        ax.plot(
+            sub["Year"], sub["Price"],
+            color=focus_color,
+            lw=2.6,
+            alpha=1.0,
+            zorder=3
+        )
+        ax.set_title(city, fontsize=title_fs, fontweight=title_fw, pad=7)
+        ax.set_xlim(x_min, x_max)
+        ax.set_xticks(x_major)
+        ax.xaxis.set_minor_locator(MultipleLocator(1))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=3))
+        ax.tick_params(axis="x", which="major", labelsize=tick_fs, length=8, width=1.2, pad=5)
+        ax.tick_params(axis="x", which="minor", length=4, width=1.0)
+        ax.tick_params(axis="y", which="major", labelsize=tick_fs, length=7, width=1.1)
+        for lab in ax.get_xticklabels() + ax.get_yticklabels():
+            lab.set_fontweight(tick_fw)
+        for side in ["top", "right", "bottom", "left"]:
+            ax.spines[side].set_visible(True)
+            ax.spines[side].set_linewidth(1.2)
+            ax.spines[side].set_color("black")
+        ax.grid(False)
+    for j in range(i + 1, len(axes)):
+        axes[j].axis("off")
+    fig.suptitle(title, fontsize=25, fontweight="bold", y=1.01)
+    fig.supxlabel("Year", fontsize=axis_label_fs, fontweight=axis_label_fw, y=0.01)
+    fig.supylabel("Average Price (€/m²)", fontsize=axis_label_fs, fontweight=axis_label_fw, x=0.01)
+    plt.tight_layout()
+    plt.show()
+
+
+plot_city_facets(
+    yearly_prices,
+    segment="Apartment",
+    context_color="#a1d99b",
+    focus_color="#238b45",
+    title="Apartment Price Trends by City (1965–2025)"
+)
+```
+```{python}
+#| label: fig-single-facets
+#| fig-cap: "Single family house price trends by city, 1965–2025. The bold line shows the focal city's trajectory; other cities are shown in light orange for comparison."
+#| fig-width: 19
+#| fig-height: 15
+plot_city_facets(
+yearly_prices,
+    segment="Single-family house",
+    context_color="#fdbb84",
+    focus_color="#e6550d",
+    title="Single-Family House Price Trends by City (1965–2025)"
+)
+```
+```{python}
+#| label: fig-multi-facets
+#| fig-cap: "Multi family house price trends by city, 1965–2025. Distinct patterns emerge in cities like Dresden and Muenster, which exceed the national average in this segment."
+#| fig-width: 19
+#| fig-height: 15
+plot_city_facets(
+    yearly_prices,
+    segment="Multi-family house",
+    context_color="#f3a4ae",
+    focus_color="#c61a2b",
+    title="Multi-Family House Price Trends by City (1965–2025)"
+)
+```
+
+## Behind the Curves
+
+- This project was shaped by a question that had long been asked but rarely answered with clarity. Through the GREIX dataset, a detailed view of housing prices across German cities was made possible, revealing both national rhythms and city-specific divergences.
+
+- Macroeconomic markers were studied not to build a model, but to understand when prices moved with the broader economy and when they broke away. Each figure was crafted to let patterns emerge rather than be imposed.
+
+- The analysis was extended beyond prices. To understand the forces behind the trends, macroeconomic indicators such as interest rates, unemployment, and GDP were incorporated. These were not used to fully explain housing prices, but rather to observe when economic conditions aligned with price movements and when they diverged.
+
+- What was found was not a single story, but many, unfolding differently across cities and decades. Some moved in step, others strayed. Some rose steadily, others surprised.
+
+- This work was not built to predict. It was built to observe. And in doing so, it invites deeper questions about the forces shaping where people live, and at what cost.
+
